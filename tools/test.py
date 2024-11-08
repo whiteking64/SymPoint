@@ -47,7 +47,8 @@ def main():
     
     if args.dist:
         model = DistributedDataParallel(model, device_ids=[torch.cuda.current_device()])
-    gpu_num = dist.get_world_size()
+    gpu_num = dist.get_world_size() if args.dist else os.environ.get("GPUS", 1)
+    print(f"GPU NUM: {gpu_num}")
 
     logger.info(f"Load state dict from {args.checkpoint}")
     load_checkpoint(args.checkpoint, logger, model)
@@ -56,18 +57,21 @@ def main():
     dataloader = build_dataloader(args,val_set, training=False, dist=args.dist, **cfg.dataloader.test)
 
     time_arr = []
-    sem_point_eval = PointWiseEval(num_classes=cfg.model.semantic_classes,ignore_label=35,gpu_num=dist.get_world_size())
-    instance_eval = InstanceEval(num_classes=cfg.model.semantic_classes,ignore_label=35,gpu_num=dist.get_world_size())
+    sem_point_eval = PointWiseEval(num_classes=cfg.model.semantic_classes,ignore_label=35,gpu_num=gpu_num)
+    instance_eval = InstanceEval(num_classes=cfg.model.semantic_classes,ignore_label=35,gpu_num=gpu_num)
     
+    step = len(dataloader) // gpu_num
     with torch.no_grad():
         model.eval()
         for i, batch in enumerate(dataloader):
+            if i == 19:
+                break
             t1 = time.time()
 
             if i % 10 == 0:
-                step = int(len(val_set)/gpu_num)
                 logger.info(f"Infer  {i+1}/{step}")
             torch.cuda.empty_cache()
+            # logger.info("Cuda memory allocated: {}".format(torch.cuda.memory_allocated()))
             with torch.cuda.amp.autocast(enabled=cfg.fp16):
                 res = model(batch,return_loss=False)
             

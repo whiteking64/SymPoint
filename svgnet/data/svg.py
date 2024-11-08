@@ -75,8 +75,10 @@ class SVGDataset(Dataset):
         return len(self.data_list)*self.repeat
     
     @staticmethod
-    def load(json_file,idx,min_points=2048):
-        data = json.load(open(json_file))
+    def load(json_file,idx,min_points=2048, inference=False):
+        data = json_file
+        if isinstance(json_file, str) and osp.exists(json_file):
+            data = json.load(open(json_file))
         args = np.array(data["args"]).reshape(-1,8)/ 140
         num = args.shape[0]
         max_num = max(num,min_points)
@@ -105,19 +107,22 @@ class SVGDataset(Dataset):
         feat[:num,1] = lens
         feat[:num,2:] = ctype
         
-        semanticIds = np.full_like(coord[:,0],35) # bg sem id = 35
-        seg = np.array(data["semanticIds"])
-        semanticIds[:num] = seg
-        semanticIds = semanticIds.astype(np.int64)
-        
-        instanceIds = np.full_like(coord[:,0],-1) # stuff id = -1
-        ins = np.array(data["instanceIds"])
-        valid_pos = ins != -1
-        ins[valid_pos] += idx*min_points
-        
-        instanceIds[:num] = ins
-        instanceIds = instanceIds.astype(np.int64)
-        label = np.concatenate([semanticIds[:,None],instanceIds[:,None]],axis=1)
+        label = None
+        if not inference:
+            semanticIds = np.full_like(coord[:,0],35) # bg sem id = 35
+            seg = np.array(data["semanticIds"])
+            semanticIds[:num] = seg
+            semanticIds = semanticIds.astype(np.int64)
+            
+            instanceIds = np.full_like(coord[:,0],-1) # stuff id = -1
+            ins = np.array(data["instanceIds"])
+            valid_pos = ins != -1
+            ins[valid_pos] += idx*min_points
+            
+            instanceIds[:num] = ins
+            instanceIds = instanceIds.astype(np.int64)
+            label = np.concatenate([semanticIds[:,None],instanceIds[:,None]],axis=1)
+
         return coord, feat, label,lengths
     
     def __getitem__(self, idx):

@@ -29,9 +29,9 @@ class Decoder(nn.Module):
         self.query_pos = nn.Embedding(self.num_queries, cfg.hidden_dim)
         
         self.mask_embed_head = nn.Sequential(
-            nn.Linear(cfg.hidden_dim, cfg.hidden_dim),
+            nn.Linear(cfg.hidden_dim, cfg.hidden_dim),  # 256 x 256
             nn.GELU(),
-            nn.Linear(cfg.hidden_dim, cfg.hidden_dim)
+            nn.Linear(cfg.hidden_dim, cfg.hidden_dim)  # 256 x 256
         )
         self.mask_features_head = nn.Sequential(
             nn.Linear(planes[0], cfg.hidden_dim),
@@ -39,7 +39,7 @@ class Decoder(nn.Module):
             nn.Linear(cfg.hidden_dim, cfg.hidden_dim)
         )
         
-        self.class_embed_head = nn.Linear(cfg.hidden_dim, self.num_classes+1)
+        self.class_embed_head = nn.Linear(cfg.hidden_dim, self.num_classes+1)  # 256 x 36
         
         self.cross_attention = nn.ModuleList()
         self.self_attention = nn.ModuleList()
@@ -92,7 +92,7 @@ class Decoder(nn.Module):
             self.ffn_attention.append(tmp_ffn_attention)
             self.lin_squeeze.append(tmp_squeeze_attention)
 
-        self.decoder_norm = nn.LayerNorm(cfg.hidden_dim)
+        self.decoder_norm = nn.LayerNorm(cfg.hidden_dim)  # 256
         
     
     def get_pos_encs(self,coords):
@@ -118,10 +118,15 @@ class Decoder(nn.Module):
             
         srcs.reverse() # 
         coords.reverse() # p5,..p1
+
+        # print(f"srcs: {len(srcs)}")
+        # print(f"coords: {len(coords)}")
         
         
         pos_encodings_pcd = self.get_pos_encs(coords[:-1])
+        # print("pos_encodings_pcd done")
         mask_features = self.mask_features_head(srcs[-1])
+        # print("mask_features done")
         # PARAMETRIC QUERIES
         queries = self.query_feat.weight[:,None,:]
         query_pos = self.query_pos.weight[:,None,:]
@@ -129,18 +134,22 @@ class Decoder(nn.Module):
         predictions_class = []
         predictions_mask = []
         
+        # print(f"num_decoders: {self.num_decoders}")
         for decoder_counter in range(self.num_decoders):
             if self.shared_decoder:
                 decoder_counter = 0
                 
             total_step = len(self.planes[:-1])
+            # print(f"total_step: {total_step}")
             for i in range(total_step):
+                # print(i)
                 src_pcd = self.lin_squeeze[decoder_counter][i](srcs[i])[:,None,:]
                 output_class, outputs_mask,attn_mask = self.mask_module(queries,
                                                           mask_features,
                                                           stage_list,
                                                           total_step-i,
                                                           ret_attn_mask=True)
+                # print("mask_module done")
                 
                 attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False
                 output = self.cross_attention[decoder_counter][i](
@@ -151,16 +160,19 @@ class Decoder(nn.Module):
                     pos=pos_encodings_pcd[i],
                     query_pos=query_pos
                 )
+                # print("cross_attention done")
                 
                 output = self.self_attention[decoder_counter][i](
                     output, tgt_mask=None,
                     tgt_key_padding_mask=None,
                     query_pos=query_pos
                 )
+                # print("self_attention done")
                 # FFN
                 queries = self.ffn_attention[decoder_counter][i](
                     output
                 )
+                # print("ffn_attention done")
 
                 predictions_class.append(output_class.transpose(0,1))
                 predictions_mask.append(outputs_mask.transpose(0,1))
@@ -200,16 +212,25 @@ class Decoder(nn.Module):
         ]
         
     def mask_module(self, query_feat, mask_features,stage_list=None,step=None,ret_attn_mask=False):
-
+        # print(query_feat.shape)
         query_feat = self.decoder_norm(query_feat)
+        # print(query_feat.shape)
         mask_embed = self.mask_embed_head(query_feat)
+        # print(mask_embed.shape)
         outputs_class = self.class_embed_head(query_feat)
-        output_masks = mask_embed @ mask_features.T
+        # print(outputs_class.shape)
+        output_masks = mask_embed @ mask_features.T  # 256 x 256
+        # print(output_masks.shape)
         if ret_attn_mask and step:
+            # print("ret_attn_mask and step")
             attn_mask = output_masks.flatten(0,1).transpose(0,1)
+            # print(attn_mask.shape)
             attn_mask = get_subscene_features("up", step, stage_list, attn_mask, torch.tensor([4, 4, 4, 4]))
+            # print(attn_mask.shape)
             attn_mask = attn_mask.transpose(0,1)[:,None,:]
+            # print(attn_mask.shape)
             attn_mask = (attn_mask.sigmoid().repeat(1,self.num_heads,1)<0.5).bool()
+            # print(attn_mask.shape)
             attn_mask = attn_mask.detach()
             return outputs_class, output_masks,attn_mask
         else:

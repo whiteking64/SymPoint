@@ -81,10 +81,13 @@ class SVGNet(nn.Module):
         stage_list.update({"tgt":targets})
         
         stage_list = self.backbone(stage_list)
+        # print("stage_list inference done")
         outputs = self.decoder(stage_list)
+        # print("decoder inference done")
         
         model_outputs = {}
         if not self.training:
+            # print("inference")
             semantic_scores=self.semantic_inference(outputs["pred_logits"],outputs["pred_masks"])
             instances = self.instance_inference(outputs["pred_logits"],outputs["pred_masks"])
             model_outputs.update(

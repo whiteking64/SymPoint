@@ -260,6 +260,8 @@ def interpolation(xyz, new_xyz, feat, offset, new_offset, k=3):
     """
     assert xyz.is_contiguous() and new_xyz.is_contiguous() and feat.is_contiguous()
     idx, dist = knnquery(k, xyz, new_xyz, offset, new_offset)  # (n, 3), (n, 3)
+    # Ensure indices are within the valid range
+    idx = torch.clamp(idx, 0, feat.size(0) - 1)
     dist_recip = 1.0 / (dist + 1e-8)  # (n, 3)
     norm = torch.sum(dist_recip, dim=1, keepdim=True)
     weight = dist_recip / norm  # (n, 3)
